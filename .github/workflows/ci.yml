@@ -35,7 +35,7 @@ jobs:
           winsdk: C:\Program Files (x86)\Windows Kits\10\bin\10.0.18362.0\x64\bin
 
     steps:
-    - run: dir C:\\Program Files (x86)\Windows Kits\10\bin\10.0.18362.0\x64
+    - run: dir "C:\Program Files (x86)\Windows Kits\10\bin\10.0.18362.0\x64"
     - uses: actions/checkout@v1
     - name: initialize submodules
       run: git submodule update --init
