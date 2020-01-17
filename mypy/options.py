@@ -3,8 +3,8 @@ import re
 import pprint
 import sys
 
-from typing import Dict, List, Mapping, Optional, Pattern, Set, Tuple
 from typing_extensions import Final
+from typing import Dict, List, Mapping, Optional, Pattern, Set, Tuple, Callable, Any
 
 from mypy import defaults
 from mypy.util import get_class_descriptors, replace_object_state
@@ -48,11 +48,12 @@ PER_MODULE_OPTIONS = {
     "strict_optional_whitelist",
     "warn_no_return",
     "warn_return_any",
+    "warn_unreachable",
     "warn_unused_ignores",
 }  # type: Final
 
 OPTIONS_AFFECTING_CACHE = ((PER_MODULE_OPTIONS |
-                            {"platform", "bazel", "plugins", "new_semantic_analyzer"})
+                            {"platform", "bazel", "plugins"})
                            - {"debug_cache"})  # type: Final
 
 
@@ -61,7 +62,7 @@ class Options:
 
     def __init__(self) -> None:
         # Cache for clone_for_module()
-        self.per_module_cache = None  # type: Optional[Dict[str, Options]]
+        self._per_module_cache = None  # type: Optional[Dict[str, Options]]
 
         # -- build options --
         self.build_type = BuildType.STANDARD
@@ -83,9 +84,6 @@ class Options:
         self.follow_imports_for_stubs = False
         # PEP 420 namespace packages
         self.namespace_packages = False
-
-        # Use the new semantic analyzer
-        self.new_semantic_analyzer = False
 
         # disallow_any options
         self.disallow_any_generics = False
@@ -140,6 +138,10 @@ class Options:
         # Show "note: In function "foo":" messages.
         self.show_error_context = False
 
+        # Use nicer output (when possible).
+        self.color_output = True
+        self.error_summary = True
+
         # Files in which to allow strict-Optional related errors
         # TODO: Kill this in favor of show_none_errors
         self.strict_optional_whitelist = None   # type: Optional[List[str]]
@@ -163,6 +165,10 @@ class Options:
         # Prohibit equality, identity, and container checks for non-overlapping types.
         # This makes 1 == '1', 1 in ['1'], and 1 is '1' errors.
         self.strict_equality = False
+
+        # Report an error for any branches inferred to be unreachable as a result of
+        # type analysis.
+        self.warn_unreachable = False
 
         # Variable names considered True
         self.always_true = []  # type: List[str]
@@ -205,12 +211,18 @@ class Options:
         # in modules being compiled. Not in the config file or command line.
         self.mypyc = False
 
+        # Disable the memory optimization of freeing ASTs when
+        # possible. This isn't exposed as a command line option
+        # because it is intended for software integrating with
+        # mypy. (Like mypyc.)
+        self.preserve_asts = False
+
         # Paths of user plugins
         self.plugins = []  # type: List[str]
 
         # Per-module options (raw)
         self.per_module_options = OrderedDict()  # type: OrderedDict[str, Dict[str, object]]
-        self.glob_options = []  # type: List[Tuple[str, Pattern[str]]]
+        self._glob_options = []  # type: List[Tuple[str, Pattern[str]]]
         self.unused_configs = set()  # type: Set[str]
 
         # -- development options --
@@ -220,6 +232,7 @@ class Options:
         self.raise_exceptions = False
         self.dump_type_stats = False
         self.dump_inference_stats = False
+        self.dump_build_stats = False
 
         # -- test options --
         # Stop after the semantic analysis phase
@@ -231,6 +244,9 @@ class Options:
         # -- experimental options --
         self.shadow_file = None  # type: Optional[List[List[str]]]
         self.show_column_numbers = False  # type: bool
+        self.show_error_codes = False
+        # Use soft word wrap and show trimmed source snippets with error location markers.
+        self.pretty = False
         self.dump_graph = False
         self.dump_deps = False
         self.logical_deps = False
@@ -246,15 +262,26 @@ class Options:
         self.cache_map = {}  # type: Dict[str, Tuple[str, str]]
         # Don't properly free objects on exit, just kill the current process.
         self.fast_exit = False
+        # Used to transform source code before parsing if not None
+        # TODO: Make the type precise (AnyStr -> AnyStr)
+        self.transform_source = None  # type: Optional[Callable[[Any], Any]]
+        # Print full path to each file in the report.
+        self.show_absolute_path = False  # type: bool
+
+    # To avoid breaking plugin compatibility, keep providing new_semantic_analyzer
+    @property
+    def new_semantic_analyzer(self) -> bool:
+        return True
 
     def snapshot(self) -> object:
         """Produce a comparable snapshot of this Option"""
         # Under mypyc, we don't have a __dict__, so we need to do worse things.
         d = dict(getattr(self, '__dict__', ()))
         for k in get_class_descriptors(Options):
-            if hasattr(self, k):
+            if hasattr(self, k) and k != "new_semantic_analyzer":
                 d[k] = getattr(self, k)
-        del d['per_module_cache']
+        # Remove private attributes from snapshot
+        d = {k: v for k, v in d.items() if not k.startswith('_')}
         return d
 
     def __repr__(self) -> str:
@@ -269,7 +296,7 @@ class Options:
         return new_options
 
     def build_per_module_cache(self) -> None:
-        self.per_module_cache = {}
+        self._per_module_cache = {}
 
         # Config precedence is as follows:
         #  1. Concrete section names: foo.bar.baz
@@ -294,7 +321,7 @@ class Options:
         concrete = [k for k in structured_keys if not k.endswith('.*')]
 
         for glob in unstructured_glob_keys:
-            self.glob_options.append((glob, self.compile_glob(glob)))
+            self._glob_options.append((glob, self.compile_glob(glob)))
 
         # We (for ease of implementation) treat unstructured glob
         # sections as used if any real modules use them or if any
@@ -307,7 +334,7 @@ class Options:
             # on inheriting from parent configs.
             options = self.clone_for_module(key)
             # And then update it with its per-module options.
-            self.per_module_cache[key] = options.apply_changes(self.per_module_options[key])
+            self._per_module_cache[key] = options.apply_changes(self.per_module_options[key])
 
         # Add the more structured sections into unused configs, since
         # they only count as used if actually used by a real module.
@@ -319,14 +346,14 @@ class Options:
         NOTE: Once this method is called all Options objects should be
         considered read-only, else the caching might be incorrect.
         """
-        if self.per_module_cache is None:
+        if self._per_module_cache is None:
             self.build_per_module_cache()
-        assert self.per_module_cache is not None
+        assert self._per_module_cache is not None
 
         # If the module just directly has a config entry, use it.
-        if module in self.per_module_cache:
+        if module in self._per_module_cache:
             self.unused_configs.discard(module)
-            return self.per_module_cache[module]
+            return self._per_module_cache[module]
 
         # If not, search for glob paths at all the parents. So if we are looking for
         # options for foo.bar.baz, we search foo.bar.baz.*, foo.bar.*, foo.*,
@@ -337,15 +364,15 @@ class Options:
         path = module.split('.')
         for i in range(len(path), 0, -1):
             key = '.'.join(path[:i] + ['*'])
-            if key in self.per_module_cache:
+            if key in self._per_module_cache:
                 self.unused_configs.discard(key)
-                options = self.per_module_cache[key]
+                options = self._per_module_cache[key]
                 break
 
         # OK and *now* we need to look for unstructured glob matches.
         # We only do this for concrete modules, not structured wildcards.
         if not module.endswith('.*'):
-            for key, pattern in self.glob_options:
+            for key, pattern in self._glob_options:
                 if pattern.match(module):
                     self.unused_configs.discard(key)
                     options = options.apply_changes(self.per_module_options[key])

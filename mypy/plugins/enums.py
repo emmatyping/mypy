@@ -14,7 +14,7 @@ from typing import Optional
 from typing_extensions import Final
 
 import mypy.plugin  # To avoid circular imports.
-from mypy.types import Type, Instance, LiteralType
+from mypy.types import Type, Instance, LiteralType, get_proper_type
 
 # Note: 'enum.EnumMeta' is deliberately excluded from this list. Classes that directly use
 # enum.EnumMeta do not necessarily automatically have the 'name' and 'value' attributes.
@@ -86,13 +86,13 @@ def enum_value_callback(ctx: 'mypy.plugin.AttributeContext') -> Type:
     if stnode is None:
         return ctx.default_attr_type
 
-    underlying_type = stnode.type
+    underlying_type = get_proper_type(stnode.type)
     if underlying_type is None:
         # TODO: Deduce the inferred type if the user omits adding their own default types.
         # TODO: Consider using the return type of `Enum._generate_next_value_` here?
         return ctx.default_attr_type
 
-    if isinstance(underlying_type, Instance) and underlying_type.type.fullname() == 'enum.auto':
+    if isinstance(underlying_type, Instance) and underlying_type.type.fullname == 'enum.auto':
         # TODO: Deduce the correct inferred type when the user uses 'enum.auto'.
         # We should use the same strategy we end up picking up above.
         return ctx.default_attr_type
@@ -111,7 +111,7 @@ def _extract_underlying_field_name(typ: Type) -> Optional[str]:
 
     We can examine this Literal fallback to retrieve the string.
     """
-
+    typ = get_proper_type(typ)
     if not isinstance(typ, Instance):
         return None
 

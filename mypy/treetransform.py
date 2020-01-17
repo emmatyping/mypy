@@ -19,10 +19,10 @@ from mypy.nodes import (
     ComparisonExpr, TempNode, StarExpr, Statement, Expression,
     YieldFromExpr, NamedTupleExpr, TypedDictExpr, NonlocalDecl, SetComprehension,
     DictionaryComprehension, ComplexExpr, TypeAliasExpr, EllipsisExpr,
-    YieldExpr, ExecStmt, Argument, BackquoteExpr, AwaitExpr,
+    YieldExpr, ExecStmt, Argument, BackquoteExpr, AwaitExpr, AssignmentExpr,
     OverloadPart, EnumCallExpr, REVEAL_TYPE
 )
-from mypy.types import Type, FunctionLike
+from mypy.types import Type, FunctionLike, ProperType
 from mypy.traverser import TraverserVisitor
 from mypy.visitor import NodeVisitor
 from mypy.util import replace_object_state
@@ -59,8 +59,10 @@ class TransformVisitor(NodeVisitor[Node]):
 
     def visit_mypy_file(self, node: MypyFile) -> MypyFile:
         # NOTE: The 'names' and 'imports' instance variables will be empty!
+        ignored_lines = {line: codes[:]
+                         for line, codes in node.ignored_lines.items()}
         new = MypyFile(self.statements(node.defs), [], node.is_bom,
-                       ignored_lines=set(node.ignored_lines))
+                       ignored_lines=ignored_lines)
         new._fullname = node._fullname
         new.path = node.path
         new.names = SymbolTable()
@@ -102,7 +104,7 @@ class TransformVisitor(NodeVisitor[Node]):
         for stmt in node.body.body:
             stmt.accept(init)
 
-        new = FuncDef(node.name(),
+        new = FuncDef(node.name,
                       [self.copy_argument(arg) for arg in node.arguments],
                       self.block(node.body),
                       cast(Optional[FunctionLike], self.optional_type(node.type)))
@@ -152,7 +154,9 @@ class TransformVisitor(NodeVisitor[Node]):
             newitem.line = olditem.line
         new = OverloadedFuncDef(items)
         new._fullname = node._fullname
-        new.type = self.optional_type(node.type)
+        new_type = self.optional_type(node.type)
+        assert isinstance(new_type, ProperType)
+        new.type = new_type
         new.info = node.info
         new.is_static = node.is_static
         new.is_class = node.is_class
@@ -196,7 +200,7 @@ class TransformVisitor(NodeVisitor[Node]):
         # Note that a Var must be transformed to a Var.
         if node in self.var_map:
             return self.var_map[node]
-        new = Var(node.name(), self.optional_type(node.type))
+        new = Var(node.name, self.optional_type(node.type))
         new.line = node.line
         new._fullname = node._fullname
         new.info = node.info
@@ -407,6 +411,9 @@ class TransformVisitor(NodeVisitor[Node]):
         new.info = node.info
         return new
 
+    def visit_assignment_expr(self, node: AssignmentExpr) -> AssignmentExpr:
+        return AssignmentExpr(node.target, node.value)
+
     def visit_unary_expr(self, node: UnaryExpr) -> UnaryExpr:
         new = UnaryExpr(node.op, self.expr(node.expr))
         new.method_type = self.optional_type(node.method_type)
@@ -443,12 +450,12 @@ class TransformVisitor(NodeVisitor[Node]):
 
     def visit_list_comprehension(self, node: ListComprehension) -> ListComprehension:
         generator = self.duplicate_generator(node.generator)
-        generator.set_line(node.generator.line)
+        generator.set_line(node.generator.line, node.generator.column)
         return ListComprehension(generator)
 
     def visit_set_comprehension(self, node: SetComprehension) -> SetComprehension:
         generator = self.duplicate_generator(node.generator)
-        generator.set_line(node.generator.line)
+        generator.set_line(node.generator.line, node.generator.column)
         return SetComprehension(generator)
 
     def visit_dictionary_comprehension(self, node: DictionaryComprehension
@@ -485,15 +492,15 @@ class TransformVisitor(NodeVisitor[Node]):
         return BackquoteExpr(self.expr(node.expr))
 
     def visit_type_var_expr(self, node: TypeVarExpr) -> TypeVarExpr:
-        return TypeVarExpr(node.name(), node.fullname(),
+        return TypeVarExpr(node.name, node.fullname,
                            self.types(node.values),
                            self.type(node.upper_bound), variance=node.variance)
 
     def visit_type_alias_expr(self, node: TypeAliasExpr) -> TypeAliasExpr:
-        return TypeAliasExpr(node.type, node.tvars, node.no_args)
+        return TypeAliasExpr(node.node)
 
     def visit_newtype_expr(self, node: NewTypeExpr) -> NewTypeExpr:
-        res = NewTypeExpr(node.name, node.old_type, line=node.line)
+        res = NewTypeExpr(node.name, node.old_type, line=node.line, column=node.column)
         res.info = node.info
         return res
 
@@ -526,13 +533,13 @@ class TransformVisitor(NodeVisitor[Node]):
     def expr(self, expr: Expression) -> Expression:
         new = expr.accept(self)
         assert isinstance(new, Expression)
-        new.set_line(expr.line)
+        new.set_line(expr.line, expr.column)
         return new
 
     def stmt(self, stmt: Statement) -> Statement:
         new = stmt.accept(self)
         assert isinstance(new, Statement)
-        new.set_line(stmt.line)
+        new.set_line(stmt.line, stmt.column)
         return new
 
     # Helpers
@@ -608,5 +615,5 @@ class FuncMapInitializer(TraverserVisitor):
         if node not in self.transformer.func_placeholder_map:
             # Haven't seen this FuncDef before, so create a placeholder node.
             self.transformer.func_placeholder_map[node] = FuncDef(
-                node.name(), node.arguments, node.body, None)
+                node.name, node.arguments, node.body, None)
         super().visit_func_def(node)

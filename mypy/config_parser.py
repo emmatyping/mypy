@@ -34,6 +34,14 @@ def parse_version(v: str) -> Tuple[int, int]:
     return major, minor
 
 
+def expand_path(path: str) -> str:
+    """Expand the user home directory and any environment variables contained within
+    the provided path.
+    """
+
+    return os.path.expandvars(os.path.expanduser(path))
+
+
 def split_and_match_files(paths: str) -> List[str]:
     """Take a string representing a list of files/directories (with support for globbing
     through the glob library).
@@ -45,7 +53,7 @@ def split_and_match_files(paths: str) -> List[str]:
     expanded_paths = []
 
     for path in paths.split(','):
-        path = path.strip()
+        path = expand_path(path.strip())
         globbed_files = fileglob.glob(path, recursive=True)
         if globbed_files:
             expanded_paths.extend(globbed_files)
@@ -63,8 +71,8 @@ config_types = {
     'python_version': parse_version,
     'strict_optional_whitelist': lambda s: s.split(),
     'custom_typing_module': str,
-    'custom_typeshed_dir': str,
-    'mypy_path': lambda s: [p.strip() for p in re.split('[,:]', s)],
+    'custom_typeshed_dir': expand_path,
+    'mypy_path': lambda s: [expand_path(p.strip()) for p in re.split('[,:]', s)],
     'files': split_and_match_files,
     'quickstart_file': str,
     'junit_xml': str,
@@ -75,6 +83,8 @@ config_types = {
     'always_true': lambda s: [p.strip() for p in s.split(',')],
     'always_false': lambda s: [p.strip() for p in s.split(',')],
     'package_root': lambda s: [p.strip() for p in s.split(',')],
+    'cache_dir': expand_path,
+    'python_executable': expand_path,
 }  # type: Final
 
 
@@ -163,10 +173,17 @@ def parse_section(prefix: str, template: Options,
     results = {}  # type: Dict[str, object]
     report_dirs = {}  # type: Dict[str, str]
     for key in section:
+        invert = False
+        options_key = key
         if key in config_types:
             ct = config_types[key]
         else:
-            dv = getattr(template, key, None)
+            dv = None
+            # We have to keep new_semantic_analyzer in Options
+            # for plugin compatibility but it is not a valid option anymore.
+            assert hasattr(template, 'new_semantic_analyzer')
+            if key != 'new_semantic_analyzer':
+                dv = getattr(template, key, None)
             if dv is None:
                 if key.endswith('_report'):
                     report_type = key[:-7].replace('_', '-')
@@ -177,7 +194,16 @@ def parse_section(prefix: str, template: Options,
                               file=stderr)
                     continue
                 if key.startswith('x_'):
-                    continue  # Don't complain about `x_blah` flags
+                    pass  # Don't complain about `x_blah` flags
+                elif key.startswith('no_') and hasattr(template, key[3:]):
+                    options_key = key[3:]
+                    invert = True
+                elif key.startswith('allow') and hasattr(template, 'dis' + key):
+                    options_key = 'dis' + key
+                    invert = True
+                elif key.startswith('disallow') and hasattr(template, key[3:]):
+                    options_key = key[3:]
+                    invert = True
                 elif key == 'strict':
                     print("%sStrict mode is not supported in configuration files: specify "
                           "individual flags instead (see 'mypy -h' for the list of flags enabled "
@@ -185,13 +211,22 @@ def parse_section(prefix: str, template: Options,
                 else:
                     print("%sUnrecognized option: %s = %s" % (prefix, key, section[key]),
                           file=stderr)
-                continue
+                if invert:
+                    dv = getattr(template, options_key, None)
+                else:
+                    continue
             ct = type(dv)
         v = None  # type: Any
         try:
             if ct is bool:
-                v = section.getboolean(key)  # type: ignore  # Until better stub
+                v = section.getboolean(key)  # type: ignore[attr-defined]  # Until better stub
+                if invert:
+                    v = not v
             elif callable(ct):
+                if invert:
+                    print("%sCan not invert non-boolean key %s" % (prefix, options_key),
+                          file=stderr)
+                    continue
                 try:
                     v = ct(section.get(key))
                 except argparse.ArgumentTypeError as err:
@@ -203,8 +238,6 @@ def parse_section(prefix: str, template: Options,
         except ValueError as err:
             print("%s%s: %s" % (prefix, key, err), file=stderr)
             continue
-        if key == 'cache_dir':
-            v = os.path.expanduser(v)
         if key == 'silent_imports':
             print("%ssilent_imports has been replaced by "
                   "ignore_missing_imports=True; follow_imports=skip" % prefix, file=stderr)
@@ -219,7 +252,7 @@ def parse_section(prefix: str, template: Options,
             if v:
                 if 'follow_imports' not in results:
                     results['follow_imports'] = 'error'
-        results[key] = v
+        results[options_key] = v
     return results, report_dirs
 
 
@@ -269,11 +302,7 @@ def mypy_comments_to_config_map(line: str,
 
         name = name.replace('-', '_')
         if value is None:
-            if name.startswith('no_') and not hasattr(template, name):
-                name = name[3:]
-                value = 'False'
-            else:
-                value = 'True'
+            value = 'True'
         options[name] = value
 
     return options, errors

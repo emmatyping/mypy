@@ -110,11 +110,16 @@ IDE, Linter Integrations, and Pre-commit
 
 Mypy can be integrated into popular IDEs:
 
-* Vim: [syntastic](https://github.com/vim-syntastic/syntastic) in `.vimrc` add `let g:syntastic_python_checkers=['mypy']`
+* Vim:
+  * Using [Syntastic](https://github.com/vim-syntastic/syntastic): in `~/.vimrc` add
+    `let g:syntastic_python_checkers=['mypy']`
+  * Using [ALE](https://github.com/dense-analysis/ale): should be enabled by default when `mypy` is installed,
+    or can be explicitly enabled by adding `let b:ale_linters = ['mypy']` in `~/vim/ftplugin/python.vim`
 * Emacs: using [Flycheck](https://github.com/flycheck/) and [Flycheck-mypy](https://github.com/lbolla/emacs-flycheck-mypy)
 * Sublime Text: [SublimeLinter-contrib-mypy](https://github.com/fredcallaway/SublimeLinter-contrib-mypy)
 * Atom: [linter-mypy](https://atom.io/packages/linter-mypy)
-* PyCharm: [mypy plugin](https://github.com/dropbox/mypy-PyCharm-plugin) (PyCharm integrates [its own implementation of PEP 484](https://www.jetbrains.com/help/pycharm/type-hinting-in-product.html))
+* PyCharm: [mypy plugin](https://github.com/dropbox/mypy-PyCharm-plugin) (PyCharm integrates
+  [its own implementation of PEP 484](https://www.jetbrains.com/help/pycharm/type-hinting-in-product.html))
 * VS Code: provides [basic integration](https://code.visualstudio.com/docs/python/linting#_mypy) with mypy.
 
 Mypy can also be integrated into [Flake8] using [flake8-mypy], or
@@ -216,7 +221,7 @@ This submodule contains types for the Python standard library.
 
 Due to the way git submodules work, you'll have to do
 ```
-  git submodule update typeshed
+  git submodule update mypy/typeshed
 ```
 whenever you change branches, merge, rebase, or pull.
 
@@ -232,7 +237,8 @@ The basic way to run tests:
     $ python2 -m pip install -U typing
     $ ./runtests.py
 
-For more on the tests, see [Test README.md](test-data/unit/README.md)
+For more on the tests, such as how to write tests and how to control
+which tests to run, see [Test README.md](test-data/unit/README.md).
 
 
 Development status
@@ -264,10 +270,11 @@ in the typing gitter instead: https://gitter.im/python/typing
 Compiled version of mypy
 ------------------------
 
-We have built an compiled version of mypy using the [mypyc
-compiler](https://github.com/mypyc/mypyc) for mypy-annotated Python
-code. It is approximately 4 times faster than interpreted mypy and is
-available (and the default) for 64-bit Windows, macOS, and Linux.
+We have built a compiled version of mypy using the [mypyc
+compiler](https://github.com/python/mypy/tree/master/mypyc) for
+mypy-annotated Python code. It is approximately 4 times faster than
+interpreted mypy and is available (and the default) for 64-bit
+Windows, macOS, and Linux.
 
 To install an interpreted mypy instead, use:
 

@@ -64,7 +64,8 @@ class FindModuleCache:
     def __init__(self,
                  search_paths: SearchPaths,
                  fscache: Optional[FileSystemCache] = None,
-                 options: Optional[Options] = None) -> None:
+                 options: Optional[Options] = None,
+                 ns_packages: Optional[List[str]] = None) -> None:
         self.search_paths = search_paths
         self.fscache = fscache or FileSystemCache()
         # Cache for get_toplevel_possibilities:
@@ -74,6 +75,7 @@ class FindModuleCache:
         self.results = {}  # type: Dict[str, Optional[str]]
         self.ns_ancestors = {}  # type: Dict[str, str]
         self.options = options
+        self.ns_packages = ns_packages or []  # type: List[str]
 
     def clear(self) -> None:
         self.results.clear()
@@ -212,6 +214,7 @@ class FindModuleCache:
         near_misses = []  # Collect near misses for namespace mode (see below).
         for base_dir, verify in candidate_base_dirs:
             base_path = base_dir + seplast  # so e.g. '/usr/lib/python3.4/foo/bar/baz'
+            has_init = False
             dir_prefix = base_dir
             for _ in range(len(components) - 1):
                 dir_prefix = os.path.dirname(dir_prefix)
@@ -220,6 +223,7 @@ class FindModuleCache:
                 path = base_path + sepinit + extension
                 path_stubs = base_path + '-stubs' + sepinit + extension
                 if fscache.isfile_case(path, dir_prefix):
+                    has_init = True
                     if verify and not verify_module(fscache, id, path, dir_prefix):
                         near_misses.append((path, dir_prefix))
                         continue
@@ -229,8 +233,12 @@ class FindModuleCache:
                         near_misses.append((path_stubs, dir_prefix))
                         continue
                     return path_stubs
-                elif self.options and self.options.namespace_packages and fscache.isdir(base_path):
+
+            # In namespace mode, register a potential namespace package
+            if self.options and self.options.namespace_packages:
+                if fscache.isdir(base_path) and not has_init:
                     near_misses.append((base_path, dir_prefix))
+
             # No package, look for module.
             for extension in PYTHON_EXTENSIONS:
                 path = base_path + extension
@@ -301,6 +309,13 @@ class FindModuleCache:
                     if mod not in hits:
                         hits.add(mod)
                         result += self.find_modules_recursive(module + '.' + mod)
+        elif os.path.isdir(module_path) and module in self.ns_packages:
+            # Even more subtler: handle recursive decent into PEP 420
+            # namespace packages that are explicitly listed on the command
+            # line with -p/--packages.
+            for item in sorted(self.fscache.listdir(module_path)):
+                if os.path.isdir(os.path.join(module_path, item)):
+                    result += self.find_modules_recursive(module + '.' + item)
         return result
 
 
@@ -478,8 +493,12 @@ def compute_search_paths(sources: List[BuildSource],
     egg_dirs, site_packages = get_site_packages_dirs(options.python_executable)
     for site_dir in site_packages:
         assert site_dir not in lib_path
-        if site_dir in mypypath:
+        if (site_dir in mypypath or
+                any(p.startswith(site_dir + os.path.sep) for p in mypypath) or
+                os.path.altsep and any(p.startswith(site_dir + os.path.altsep) for p in mypypath)):
             print("{} is in the MYPYPATH. Please remove it.".format(site_dir), file=sys.stderr)
+            print("See https://mypy.readthedocs.io/en/latest/running_mypy.html"
+                  "#how-mypy-handles-imports for more info", file=sys.stderr)
             sys.exit(1)
         elif site_dir in python_path:
             print("{} is in the PYTHONPATH. Please change directory"

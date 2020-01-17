@@ -2,9 +2,10 @@
 
 from abc import abstractmethod
 from typing import TypeVar, Generic
+from typing_extensions import TYPE_CHECKING
 from mypy_extensions import trait
 
-if False:
+if TYPE_CHECKING:
     # break import cycle only needed for mypy
     import mypy.nodes
 
@@ -88,6 +89,10 @@ class ExpressionVisitor(Generic[T]):
 
     @abstractmethod
     def visit_unary_expr(self, o: 'mypy.nodes.UnaryExpr') -> T:
+        pass
+
+    @abstractmethod
+    def visit_assignment_expr(self, o: 'mypy.nodes.AssignmentExpr') -> T:
         pass
 
     @abstractmethod
@@ -471,6 +476,9 @@ class NodeVisitor(Generic[T], ExpressionVisitor[T], StatementVisitor[T]):
         pass
 
     def visit_super_expr(self, o: 'mypy.nodes.SuperExpr') -> T:
+        pass
+
+    def visit_assignment_expr(self, o: 'mypy.nodes.AssignmentExpr') -> T:
         pass
 
     def visit_unary_expr(self, o: 'mypy.nodes.UnaryExpr') -> T:

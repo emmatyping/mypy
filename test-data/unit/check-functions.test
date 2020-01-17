@@ -25,6 +25,7 @@ if int():
 
 class A: pass
 class B: pass
+[builtins fixtures/tuple.pyi]
 
 [case testKeywordOnlyArgumentOrderInsensitivity]
 import typing
@@ -243,6 +244,7 @@ if int():
     o = f
 
 class A: pass
+[builtins fixtures/tuple.pyi]
 
 [case testFunctionSubtypingWithVoid]
 from typing import Callable
@@ -407,6 +409,7 @@ def f(x: A) -> A: pass
 def f(x: B) -> B: pass
 @overload
 def f(x: C) -> C: pass
+[builtins fixtures/tuple.pyi]
 
 [case testInferConstraintsUnequalLengths]
 from typing import Any, Callable, List
@@ -459,6 +462,7 @@ def f(x: 'A'  =  None) -> 'B': pass
 class A: pass
 class AA(A): pass
 class B: pass
+[builtins fixtures/tuple.pyi]
 
 [case testDefaultArgumentExpressions]
 import typing
@@ -919,7 +923,7 @@ from typing import no_type_check
 @no_type_check
 def foo(x: 'bar', y: {'x': 4}) -> 42:
     1 + 'x'
-[typing fixtures/typing-full.pyi]
+[typing fixtures/typing-medium.pyi]
 
 [case testNoTypeCheckDecoratorOnMethod2]
 import typing
@@ -931,7 +935,7 @@ def foo(x: 's', y: {'x': 4}) -> 42:
 @typing.no_type_check
 def bar() -> None:
     1 + 'x'
-[typing fixtures/typing-full.pyi]
+[typing fixtures/typing-medium.pyi]
 
 [case testCallingNoTypeCheckFunction]
 import typing
@@ -942,7 +946,7 @@ def foo(x: {1:2}) -> [1]:
 
 foo()
 foo(1, 'b')
-[typing fixtures/typing-full.pyi]
+[typing fixtures/typing-medium.pyi]
 
 [case testCallingNoTypeCheckFunction2]
 import typing
@@ -953,7 +957,7 @@ def f() -> None:
 @typing.no_type_check
 def foo(x: {1:2}) -> [1]:
     1 + 'x'
-[typing fixtures/typing-full.pyi]
+[typing fixtures/typing-medium.pyi]
 
 [case testNoTypeCheckDecoratorSemanticError]
 import typing
@@ -961,7 +965,7 @@ import typing
 @typing.no_type_check
 def foo(x: {1:2}) -> [1]:
     x = y
-[typing fixtures/typing-full.pyi]
+[typing fixtures/typing-medium.pyi]
 
 
 -- Forward references to decorated functions
@@ -1345,6 +1349,7 @@ else:
             x = 1
 f(1)
 f('x') # fail
+[builtins fixtures/primitives.pyi]
 [out]
 main:5: error: Unsupported operand types for + ("str" and "int")
 main:10: error: Unsupported operand types for + ("int" and "str")
@@ -1423,7 +1428,7 @@ else:
     def f(x: str) -> None: pass # E: Incompatible redefinition (redefinition with type "Callable[[str], None]", original type "Callable[[int], None]")
 
 [case testConditionalFunctionDefinitionUsingDecorator3]
-# flags: --new-semantic-analyzer
+
 from typing import Callable
 
 def dec(f) -> Callable[[int], None]: pass
@@ -1436,7 +1441,7 @@ else:
     def f(): pass
 
 [case testConditionalFunctionDefinitionUsingDecorator4]
-# flags: --new-semantic-analyzer
+
 from typing import Callable
 
 def dec(f) -> Callable[[int], None]: pass
@@ -1550,7 +1555,8 @@ from contextlib import contextmanager
 @contextmanager
 def f():
     yield
-[typing fixtures/typing-full.pyi]
+[typing fixtures/typing-medium.pyi]
+[builtins fixtures/tuple.pyi]
 
 
 -- Conditional method definition
@@ -1605,6 +1611,7 @@ class A:
                 x = 1
 A().f(1)
 A().f('x') # fail
+[builtins fixtures/primitives.pyi]
 [out]
 main:6: error: Unsupported operand types for + ("str" and "int")
 main:11: error: Unsupported operand types for + ("int" and "str")
@@ -1711,6 +1718,7 @@ def a(f: F):
 from collections import namedtuple
 class C(namedtuple('t', 'x')):
     pass
+[builtins fixtures/tuple.pyi]
 
 [case testCallableParsingSameName]
 from typing import Callable
@@ -1720,6 +1728,7 @@ def Arg(x, y): pass
 F = Callable[[Arg(int, 'x')], int]  # E: Invalid argument constructor "__main__.Arg"
 
 [case testCallableParsingFromExpr]
+
 from typing import Callable, List
 from mypy_extensions import Arg, VarArg, KwArg
 import mypy_extensions
@@ -1737,12 +1746,12 @@ J = Callable[[VarArg(), KwArg()], int] # ok
 K = Callable[[VarArg(), int], int] # E: Required positional args may not appear after default, named or var args
 L = Callable[[Arg(name='x', type=int)], int] # ok
 # I have commented out the following test because I don't know how to expect the "defined here" note part of the error.
-# M = Callable[[Arg(gnome='x', type=int)], int]   E: Invalid type alias   E: Unexpected keyword argument "gnome" for "Arg"
+# M = Callable[[Arg(gnome='x', type=int)], int]   E: Invalid type alias: expression is not a valid type   E: Unexpected keyword argument "gnome" for "Arg"
 N = Callable[[Arg(name=None, type=int)], int] # ok
-O = Callable[[List[Arg(int)]], int]  # E: Invalid type alias  # E: Value of type "int" is not indexable  # E: Type expected within [...] # E: The type "Type[List[Any]]" is not generic and not indexable
+O = Callable[[List[Arg(int)]], int]  # E: Invalid type alias: expression is not a valid type  # E: Value of type "int" is not indexable  # E: Type expected within [...] # E: The type "Type[List[Any]]" is not generic and not indexable
 P = Callable[[mypy_extensions.VarArg(int)], int] # ok
-Q = Callable[[Arg(int, type=int)], int]  # E: Invalid type alias  # E: Value of type "int" is not indexable  # E: "Arg" gets multiple values for keyword argument "type"
-R = Callable[[Arg(int, 'x', name='y')], int]  # E: Invalid type alias  # E: Value of type "int" is not indexable  # E: "Arg" gets multiple values for keyword argument "name"
+Q = Callable[[Arg(int, type=int)], int]  # E: Invalid type alias: expression is not a valid type  # E: Value of type "int" is not indexable  # E: "Arg" gets multiple values for keyword argument "type"
+R = Callable[[Arg(int, 'x', name='y')], int]  # E: Invalid type alias: expression is not a valid type  # E: Value of type "int" is not indexable  # E: "Arg" gets multiple values for keyword argument "name"
 
 [builtins fixtures/dict.pyi]
 
@@ -1975,9 +1984,11 @@ def g3(*x: T) -> T: pass
 f(g1)
 f(g2)
 f(g3)
+[builtins fixtures/tuple.pyi]
 
 -- (...) -> T
 -- ----------------
+
 [case testEllipsisWithArbitraryArgsOnBareFunction]
 def f(x, y, z): # type: (...) -> None
     pass
@@ -2033,13 +2044,13 @@ class A:
 def f(x, y, z): # type: (..., int) -> None
     pass
 [out]
-main:1: error: Ellipses cannot accompany other argument types in function type signature.
+main:1: error: Ellipses cannot accompany other argument types in function type signature
 
 [case testEllipsisWithSomethingBeforeItFails]
 def f(x, y, z): # type: (int, ...) -> None
     pass
 [out]
-main:1: error: Ellipses cannot accompany other argument types in function type signature.
+main:1: error: Ellipses cannot accompany other argument types in function type signature
 
 [case testRejectCovariantArgument]
 from typing import TypeVar, Generic
@@ -2332,6 +2343,10 @@ foo(y=2)  # E: Missing positional arguments
 def f(a, b, c, d=None) -> None: pass
 f(1, 2, d=3) # E: Missing positional argument "c" in call to "f"
 
+[case testMissingArgumentErrorMoreThanOneOptional]
+def f(a: int, b=None, c=None) -> None: pass
+f(b=4) # E: Missing positional argument "a" in call to "f"
+
 [case testMissingArgumentsError]
 def f(a, b, c, d=None) -> None: pass
 f(1, d=3) # E: Missing positional arguments "b", "c" in call to "f"
@@ -2548,3 +2563,9 @@ def f() -> int: ...
 [file p/d.py]
 import p
 def f() -> int: ...
+
+[case testLambdaDefaultTypeErrors]
+lambda a=nonsense: a  # E: Name 'nonsense' is not defined
+lambda a=(1 + 'asdf'): a  # E: Unsupported operand types for + ("int" and "str")
+def f(x: int = i):  # E: Name 'i' is not defined
+    i = 42
